@@ -2,82 +2,103 @@ import meraki
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-# Insira sua chave de API da Meraki aqui
-API_KEY = 'API_AQUI'
-# Insira o número de série do dispositivo MX aqui
-serial = 'Serial_AQUI'
+API_KEY = 'ChaveApiAQUI'
+serial_1 = 'SerialAQUI'  # Serial do dispositivo Mx1
+serial_2 = 'SerialAQUI'  # Serial do dispositivo Mx2
 
 dashboard = meraki.DashboardAPI(API_KEY)
 
 # Configurações do gráfico
 plt.style.use('ggplot')
 fig, ax = plt.subplots(figsize=(10, 6))
+linhas = []
+cores = ['#5DBB63', '#386FA4']  # Cores  cada mx
+labels = ['Mx1', 'Mx2']
 
-# Linha principal do gráfico (score de desempenho)
-linha, = ax.plot([], [], color='#5DBB63', lw=2, linestyle='-', label='Score de Desempenho')
+for i in range(2):
+    linha, = ax.plot([], [], color=cores[i], lw=2, linestyle='-', label=labels[i])
+    linhas.append(linha)
 
-# Linha tracejada representando o limite de utilização alta
-linha_alta, = ax.plot([], [], color='#F34235', lw=1, linestyle='--', dashes=(5, 5), label='Limite de Utilização Alta')
-
-# Linha horizontal representando 75% de utilização alta
+linha_alta = ax.plot([], [], color='#F34235', lw=1, linestyle='--', dashes=(5, 5), label='Limite de Utilização Alta')[0]
 marcacao_75 = ax.axhline(y=75, color='gray', lw=1, linestyle=':', label='75% de Utilização Alta')
 
 ax.set_xlim(0, 100)
-ax.set_ylim(0, 100)
+ax.set_ylim(0, 100)  # Define o limite superior do eixo y como 100
+
 ax.set_xlabel('Tempo')
 ax.set_ylabel('Score de Desempenho')
 ax.set_title('Monitoramento MX', fontsize=16, fontweight='bold', color='#5DBB63')
 ax.legend(loc='upper right')
 
-# Listas para armazenar os dados do gráfico
 x_dados = []
-y_dados = []
+y_dados = [[] for _ in range(2)]  # Lista de listas para armazenar os dados de cada equipamento
 
-# Texto exibido no gráfico para o score atual
-score_text = ax.text(0.05, 0.05, '', ha='left', va='bottom', transform=ax.transAxes, fontsize=14, fontweight='bold', color='black')
+score_texts = []  # Lista para armazenar os textos dos scores individuais
 
-# Texto exibido no gráfico para a informação de utilização (alta ou normal)
-utilizacao_text = ax.text(0.95, 0.05, '', ha='right', va='bottom', transform=ax.transAxes, fontsize=12)
+def init():
+    for score_text in score_texts:
+        score_text.set_text('')
+    return score_texts
 
 def atualizar_grafico(frame):
     try:
-        resposta = dashboard.appliance.getDeviceAppliancePerformance(serial)
-        score_desempenho = resposta['perfScore']
+        respostas = [dashboard.appliance.getDeviceAppliancePerformance(serial_arcos),
+                     dashboard.appliance.getDeviceAppliancePerformance(serial_bh)]
+        scores_desempenho = [resposta['perfScore'] for resposta in respostas]
+        consumos = [f'{labels[i]}: {score_desempenho}%' for i, score_desempenho in enumerate(scores_desempenho)]
 
-        # Atualiza os dados do gráfico com o score de desempenho atual
+        # Atualiza os dados do gráfico
         x_dados.append(frame)
-        y_dados.append(score_desempenho)
+        for i, score_desempenho in enumerate(scores_desempenho):
+            y_dados[i].append(score_desempenho)
 
         # Limita o número de pontos exibidos no gráfico para manter um histórico
         max_pontos = 100
         if len(x_dados) > max_pontos:
             x_dados.pop(0)
-            y_dados.pop(0)
+            for i in range(2):
+                y_dados[i].pop(0)
 
-        # Atualiza as linhas do gráfico com os novos dados
-        linha.set_data(x_dados, y_dados)
-        linha_alta.set_data([x_dados[0], x_dados[-1]], [75, 75])  # Linha tracejada de 75% de utilização alta
+        # Atualiza os dados das linhas do gráfico
+        for i in range(2):
+            linhas[i].set_data(x_dados, y_dados[i])
+        
+        linha_alta.set_data([x_dados[0], x_dados[-1]], [75, 75])  # Linha tracejada de 75% de utilização
 
-        # Altera a cor da linha principal e do fundo com base no score de desempenho
-        if score_desempenho >= 75:
-            linha.set_color('#F34235')  # Vermelho para indicar alta utilização
-            ax.set_facecolor('#FFECE9')  # Fundo vermelho claro
-            utilizacao_text.set_text('Utilização Alta')
-            utilizacao_text.set_color('#F34235')
-        else:
-            linha.set_color('#5DBB63')  # Verde para indicar utilização normal
-            ax.set_facecolor('#E9FCEB')  # Fundo verde claro
-            utilizacao_text.set_text('Utilização Normal')
-            utilizacao_text.set_color('#5DBB63')
+        # Altera a cor das linhas com base no score de desempenho
+        for i, score_desempenho in enumerate(scores_desempenho):
+            if score_desempenho >= 75:
+                linhas[i].set_color('#F34235')  # Vermelho para indicar alta utilização
+                ax.set_facecolor('#FFECE9')  # Fundo vermelho claro
+            else:
+                linhas[i].set_color(cores[i])  # Cor do equipamento para indicar utilização normal
+                ax.set_facecolor('#E9FCEB')  # Fundo verde claro
 
-        # Atualiza o texto do score atual
-        score_text.set_text(f'Score Atual: {score_desempenho}%')
-
+            # Atualiza o texto do score individual
+            score_text = score_texts[i]
+            score_text.set_text(consumos[i])
+            if score_desempenho >= 75:
+                score_text.set_color('#F34235')
+            else:
+                score_text.set_color('black')
+        
+        # Exibe o score atual de cada equipamento
+        for i, score_desempenho in enumerate(scores_desempenho):
+            score_text = score_texts[i]
+            score_text.set_position((5, 95-i*5))
+        
     except meraki.APIError as e:
         print(f"Ocorreu um erro na chamada da API: {e}")
+    except Exception as ex:
+        print(f"Ocorreu um erro desconhecido: {ex}")
+
+# Cria os textos dos scores individuais
+for i, _ in enumerate(labels):
+    score_text = ax.text(5, 95-i*5, '', ha='left', va='top', fontsize=12, fontweight='bold', color='black', bbox=dict(facecolor='white', edgecolor='black', boxstyle='round'))
+    score_texts.append(score_text)
 
 # Cria a animação
-ani = animation.FuncAnimation(fig, atualizar_grafico, frames=range(1, 100), interval=1000)
+ani = animation.FuncAnimation(fig, atualizar_grafico, frames=range(1, 100), init_func=init, interval=1000)
 
 # Exibe o gráfico
 plt.tight_layout()
